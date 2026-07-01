@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS Users (
     user_id INT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash CHAR(64) NOT NULL,
-    role ENUM('admin', 'operator', 'viewer') NOT NULL DEFAULT 'viewer',
+    role ENUM('operator', 'viewer') NOT NULL DEFAULT 'viewer',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -82,7 +82,6 @@ INSERT IGNORE INTO ClassBookPlans (class_id, textbook_id, semester_id, required_
 
 -- 插入默认用户
 INSERT IGNORE INTO Users (username, password_hash, role) VALUES
-('admin',   SHA2('123456', 256), 'admin'),
 ('operator', SHA2('123456', 256), 'operator'),
 ('viewer',  SHA2('123456', 256), 'viewer');
 

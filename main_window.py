@@ -154,15 +154,7 @@ class BookOrderSystem(QMainWindow):
 
     def apply_permissions(self):
             """根据角色启用/禁用功能按钮"""
-            if self.role == 'admin':
-                # 全部启用
-                self.btn_all.setEnabled(True)
-                self.btn_add.setEnabled(True)
-                self.btn_stock.setEnabled(True)
-                self.btn_pickup.setEnabled(True)
-                self.btn_warning.setEnabled(True)
-                self.btn_print.setEnabled(True)
-            elif self.role == 'operator':
+            if self.role == 'operator':
                 self.btn_all.setEnabled(True)
                 self.btn_add.setEnabled(True)
                 self.btn_stock.setEnabled(True)
@@ -180,7 +172,7 @@ class BookOrderSystem(QMainWindow):
 
         # 在每个可能修改数据的操作前再检查一次权限（防御性编程）
     def add_textbook(self):
-        if self.role not in ('admin', 'operator'):
+        if self.role not in ('operator'):
             QMessageBox.warning(self, "权限不足", "您没有执行此操作的权限")
             return
         dialog = AddTextbookDialog(self)
@@ -188,7 +180,7 @@ class BookOrderSystem(QMainWindow):
             self.refresh_table()
 
     def manage_stock(self):
-        if self.role not in ('admin', 'operator'):
+        if self.role not in ('operator'):
             QMessageBox.warning(self, "权限不足", "您没有执行此操作的权限")
             return
         dialog = ManageStockDialog(self)
@@ -196,7 +188,7 @@ class BookOrderSystem(QMainWindow):
             self.refresh_table()
 
     def pickup_book(self):
-        if self.role not in ('admin', 'operator'):
+        if self.role not in ('operator'):
             QMessageBox.warning(self, "权限不足", "您没有执行此操作的权限")
             return
         dialog = PickupDialog(self)
