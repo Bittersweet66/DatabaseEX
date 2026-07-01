@@ -21,3 +21,8 @@ pip install pymysql
 pip install PyQt5
 pip install PyQt5-tools
 ```
+#### 基于用户的访问控制
+目前用户：
+('admin',   SHA2('123456', 256), 'admin'),
+('operator', SHA2('123456', 256), 'operator'),
+('viewer',  SHA2('123456', 256), 'viewer');

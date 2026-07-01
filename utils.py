@@ -20,3 +20,23 @@ def populate_table(table, rows, columns=None):
     for i, row in enumerate(rows):
         for j in range(col_count):
             table.setItem(i, j, QTableWidgetItem(str(row[j])))
+
+# db_utils.py 新增
+@staticmethod
+def authenticate_user(username, password_hash):
+    conn = None
+    cursor = None
+    try:
+        conn = DBConnection.get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT role FROM Users WHERE username = %s AND password_hash = %s",
+            (username, password_hash)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

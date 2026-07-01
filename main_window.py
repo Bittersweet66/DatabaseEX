@@ -8,12 +8,14 @@ from dialogs import AddTextbookDialog, ManageStockDialog, PickupDialog
 from utils import populate_table
 
 class BookOrderSystem(QMainWindow):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, role, parent=None):   # 增加 role 参数
+        super().__init__(parent)
+        self.role = role   # 保存角色
         self.setWindowTitle("教材订购管理系统 v2.0")
         self.setGeometry(200, 200, 1000, 600)
         self.init_ui()
         self.refresh_table()
+        self.apply_permissions()   # 根据角色控制按钮
 
     def init_ui(self):
         central_widget = QWidget()
@@ -23,13 +25,13 @@ class BookOrderSystem(QMainWindow):
         # 工具栏
         toolbar = QToolBar()
         self.addToolBar(toolbar)
-        # 新增“全部教材”按钮（放在最前面便于返回）
-        toolbar.addAction("📖 全部教材", self.refresh_table)
-        toolbar.addAction("📚 教材入库", self.add_textbook)
-        toolbar.addAction("📦 库存管理", self.manage_stock)
-        toolbar.addAction("📋 领书登记", self.pickup_book)
-        toolbar.addAction("⚠️ 余量预警", self.show_subscription_warning)
-        toolbar.addAction("🖨️ 班级采购清单", self.print_class_list)
+        # 为后续权限控制保存按钮引用
+        self.btn_all = toolbar.addAction("📖 全部教材", self.refresh_table)
+        self.btn_add = toolbar.addAction("📚 教材入库", self.add_textbook)
+        self.btn_stock = toolbar.addAction("📦 库存管理", self.manage_stock)
+        self.btn_pickup = toolbar.addAction("📋 领书登记", self.pickup_book)
+        self.btn_warning = toolbar.addAction("⚠️ 余量预警", self.show_subscription_warning)
+        self.btn_print = toolbar.addAction("🖨️ 班级采购清单", self.print_class_list)
 
         # 表格
         self.table = QTableWidget()
@@ -40,6 +42,8 @@ class BookOrderSystem(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪")
+
+        
 
     # ---------- 刷新表格 ----------
     def refresh_table(self, query="SELECT * FROM Textbooks", params=()):
@@ -147,3 +151,54 @@ class BookOrderSystem(QMainWindow):
             msg.exec_()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"获取清单失败：{e}")
+
+    def apply_permissions(self):
+            """根据角色启用/禁用功能按钮"""
+            if self.role == 'admin':
+                # 全部启用
+                self.btn_all.setEnabled(True)
+                self.btn_add.setEnabled(True)
+                self.btn_stock.setEnabled(True)
+                self.btn_pickup.setEnabled(True)
+                self.btn_warning.setEnabled(True)
+                self.btn_print.setEnabled(True)
+            elif self.role == 'operator':
+                self.btn_all.setEnabled(True)
+                self.btn_add.setEnabled(True)
+                self.btn_stock.setEnabled(True)
+                self.btn_pickup.setEnabled(True)
+                self.btn_warning.setEnabled(True)
+                self.btn_print.setEnabled(True)
+                # 可以根据需求微调，例如允许操作员修改库存和领书
+            elif self.role == 'viewer':
+                self.btn_all.setEnabled(True)
+                self.btn_add.setEnabled(False)
+                self.btn_stock.setEnabled(False)
+                self.btn_pickup.setEnabled(False)
+                self.btn_warning.setEnabled(True)
+                self.btn_print.setEnabled(True)
+
+        # 在每个可能修改数据的操作前再检查一次权限（防御性编程）
+    def add_textbook(self):
+        if self.role not in ('admin', 'operator'):
+            QMessageBox.warning(self, "权限不足", "您没有执行此操作的权限")
+            return
+        dialog = AddTextbookDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.refresh_table()
+
+    def manage_stock(self):
+        if self.role not in ('admin', 'operator'):
+            QMessageBox.warning(self, "权限不足", "您没有执行此操作的权限")
+            return
+        dialog = ManageStockDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.refresh_table()
+
+    def pickup_book(self):
+        if self.role not in ('admin', 'operator'):
+            QMessageBox.warning(self, "权限不足", "您没有执行此操作的权限")
+            return
+        dialog = PickupDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+                self.refresh_table()
