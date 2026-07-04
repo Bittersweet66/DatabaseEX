@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS PickupRecords (
     FOREIGN KEY (textbook_id) REFERENCES Textbooks(ISBN)
 );
 
---创建用户表
+-- 创建用户表
 CREATE TABLE IF NOT EXISTS Users (
     user_id INT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) UNIQUE NOT NULL,

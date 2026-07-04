@@ -290,3 +290,269 @@ class PickupDialog(QDialog):
             QMessageBox.warning(self, "输入错误", str(e))
         except Exception as e:
             QMessageBox.critical(self, "领书失败", f"错误：{e}")
+
+# ---------- 4. 用书计划管理对话框 ----------
+class PlanManagementDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("用书计划管理（教材征订）")
+        self.setModal(True)
+        self.resize(700, 500)
+        self.init_ui()
+        self.load_plans()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 操作区域
+        form_layout = QHBoxLayout()
+        self.class_combo = QComboBox()
+        self.class_combo.addItem("请选择班级")
+        self.semester_combo = QComboBox()
+        self.semester_combo.addItem("请选择学期")
+        self.textbook_combo = QComboBox()
+        self.textbook_combo.addItem("请选择教材")
+        self.qty_edit = QLineEdit()
+        self.qty_edit.setPlaceholderText("数量")
+        btn_add = QPushButton("添加计划")
+        btn_add.clicked.connect(self.add_plan)
+
+        form_layout.addWidget(QLabel("班级:"))
+        form_layout.addWidget(self.class_combo)
+        form_layout.addWidget(QLabel("学期:"))
+        form_layout.addWidget(self.semester_combo)
+        form_layout.addWidget(QLabel("教材:"))
+        form_layout.addWidget(self.textbook_combo)
+        form_layout.addWidget(QLabel("数量:"))
+        form_layout.addWidget(self.qty_edit)
+        form_layout.addWidget(btn_add)
+        layout.addLayout(form_layout)
+
+        # 计划列表表格
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["序号", "班级", "学期", "教材", "数量"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(self.table)
+
+        # 删除按钮
+        btn_del = QPushButton("删除选中计划")
+        btn_del.clicked.connect(self.delete_plan)
+        layout.addWidget(btn_del)
+
+        # 加载基础数据（班级、学期、教材下拉框）
+        self.load_combos()
+
+    def load_combos(self):
+        try:
+            # 加载班级
+            rows = DBConnection.execute_query("SELECT class_id, class_name FROM Classes")
+            for cid, name in rows:
+                self.class_combo.addItem(name, cid)
+            # 加载学期
+            rows = DBConnection.execute_query("SELECT semester_id, semester_name FROM Semesters")
+            for sid, name in rows:
+                self.semester_combo.addItem(name, sid)
+            # 加载教材
+            rows = DBConnection.execute_query("SELECT ISBN, book_name FROM Textbooks")
+            for isbn, name in rows:
+                self.textbook_combo.addItem(name, isbn)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载基础数据失败：{e}")
+
+    def load_plans(self):
+        sql = """
+        SELECT cbp.plan_id, c.class_name, s.semester_name, t.book_name, cbp.required_quantity
+        FROM ClassBookPlans cbp
+        JOIN Classes c ON cbp.class_id = c.class_id
+        JOIN Semesters s ON cbp.semester_id = s.semester_id
+        JOIN Textbooks t ON cbp.textbook_id = t.ISBN
+        """
+        try:
+            rows = DBConnection.execute_query(sql, fetch_all=True)
+            self.table.setRowCount(len(rows))
+            for i, row in enumerate(rows):
+                # row 结构: (plan_id, class_name, semester_name, book_name, required_quantity)
+                # 第一列显示序号（行号+1）
+                seq_item = QTableWidgetItem(str(i + 1))
+                seq_item.setData(Qt.UserRole, row[0])   # 存储真实 plan_id
+                self.table.setItem(i, 0, seq_item)
+                
+                # 其他列正常填充
+                self.table.setItem(i, 1, QTableWidgetItem(row[1]))  # 班级
+                self.table.setItem(i, 2, QTableWidgetItem(row[2]))  # 学期
+                self.table.setItem(i, 3, QTableWidgetItem(row[3]))  # 教材
+                self.table.setItem(i, 4, QTableWidgetItem(str(row[4])))  # 数量
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载计划失败：{e}")
+
+    def add_plan(self):
+        class_id = self.class_combo.currentData()
+        semester_id = self.semester_combo.currentData()
+        textbook_id = self.textbook_combo.currentData()
+        qty_text = self.qty_edit.text().strip()
+        if class_id is None or semester_id is None or textbook_id is None:
+            QMessageBox.warning(self, "提示", "请完整选择班级、学期和教材")
+            return
+        try:
+            qty = int(qty_text)
+            if qty <= 0:
+                raise ValueError
+        except:
+            QMessageBox.warning(self, "提示", "数量必须为正整数")
+            return
+
+        try:
+            # 插入计划（检查唯一性由数据库约束保证）
+            DBConnection.execute_query(
+                "INSERT INTO ClassBookPlans (class_id, textbook_id, semester_id, required_quantity) VALUES (%s, %s, %s, %s)",
+                (class_id, textbook_id, semester_id, qty)
+            )
+            QMessageBox.information(self, "成功", "用书计划添加成功")
+            self.load_plans()
+            self.qty_edit.clear()
+        except Exception as e:
+            # 如果违反唯一约束，提示用户
+            if "Duplicate entry" in str(e):
+                QMessageBox.warning(self, "提示", "该班级、学期、教材的计划已存在，请勿重复添加")
+            else:
+                QMessageBox.critical(self, "错误", f"添加失败：{e}")
+
+    def delete_plan(self):
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "提示", "请先选中要删除的计划行")
+            return
+        # 从第一列的 data 中获取真实 plan_id
+        plan_id_item = self.table.item(current_row, 0)
+        if not plan_id_item:
+            return
+        plan_id = plan_id_item.data(Qt.UserRole)
+        if plan_id is None:
+            QMessageBox.warning(self, "错误", "无法获取计划ID")
+            return
+        reply = QMessageBox.question(self, "确认删除", f"确定删除序号 {current_row+1} 的计划吗？",
+                                    QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            try:
+                DBConnection.execute_query("DELETE FROM ClassBookPlans WHERE plan_id = %s", (plan_id,))
+                QMessageBox.information(self, "成功", "计划已删除")
+                self.load_plans()   # 刷新列表，序号重新连续排列
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"删除失败：{e}")
+import os
+from datetime import datetime
+from PyQt5.QtWidgets import QFileDialog
+
+# ---------- 5. 备份与恢复对话框 ----------
+class BackupRestoreDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("数据库备份与恢复")
+        self.setModal(True)
+        self.resize(400, 200)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 备份按钮
+        btn_backup = QPushButton("备份整个数据库")
+        btn_backup.clicked.connect(self.do_backup)
+        layout.addWidget(btn_backup)
+
+        # 恢复按钮
+        btn_restore = QPushButton("从备份文件恢复")
+        btn_restore.clicked.connect(self.do_restore)
+        layout.addWidget(btn_restore)
+
+        # 提示
+        lbl = QLabel("注意：恢复操作将覆盖现有数据，请谨慎操作。\n备份文件为SQL格式，可选择部分表恢复。")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet("color: gray;")
+        layout.addWidget(lbl)
+
+        self.status_label = QLabel("就绪")
+        layout.addWidget(self.status_label)
+
+    def do_backup(self):
+        # 选择保存路径
+        default_name = f"BookOrderDB_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+        file_path, _ = QFileDialog.getSaveFileName(self, "保存备份文件", default_name, "SQL files (*.sql)")
+        if not file_path:
+            return
+
+        # 从 config.py 读取数据库配置
+        from config import DB_CONFIG
+        host = DB_CONFIG.get('host', 'localhost')
+        user = DB_CONFIG.get('user', 'root')
+        password = DB_CONFIG.get('password', '')
+        database = DB_CONFIG.get('database', 'BookOrderDB')
+
+        # 构造 mysqldump 命令
+        cmd = [
+            'mysqldump',
+            f'--host={host}',
+            f'--user={user}',
+            f'--password={password}',
+            '--databases', database,
+            '--single-transaction',
+            '--routines',   # 备份存储过程/函数
+            '--triggers',
+            '--add-drop-database'
+        ]
+        try:
+            self.status_label.setText("正在备份，请稍候...")
+            QApplication.processEvents()
+            with open(file_path, 'w', encoding='utf-8') as f:
+                subprocess.run(cmd, stdout=f, check=True, stderr=subprocess.PIPE)
+            self.status_label.setText(f"备份成功！文件保存在：{file_path}")
+            QMessageBox.information(self, "成功", f"数据库备份完成！\n文件：{file_path}")
+        except subprocess.CalledProcessError as e:
+            self.status_label.setText("备份失败")
+            QMessageBox.critical(self, "错误", f"备份失败：{e.stderr.decode() if e.stderr else '未知错误'}")
+        except Exception as e:
+            self.status_label.setText("备份失败")
+            QMessageBox.critical(self, "错误", f"备份异常：{e}")
+
+    def do_restore(self):
+        # 选择备份文件
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择备份文件", "", "SQL files (*.sql)")
+        if not file_path:
+            return
+
+        reply = QMessageBox.question(self, "确认恢复",
+                                     "恢复操作将删除当前数据库并重新创建，数据将被覆盖！\n确定继续吗？",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
+        from config import DB_CONFIG
+        host = DB_CONFIG.get('host', 'localhost')
+        user = DB_CONFIG.get('user', 'root')
+        password = DB_CONFIG.get('password', '')
+        database = DB_CONFIG.get('database', 'BookOrderDB')
+
+        # mysql 命令用于执行 SQL 文件
+        cmd = [
+            'mysql',
+            f'--host={host}',
+            f'--user={user}',
+            f'--password={password}',
+            database
+        ]
+        try:
+            self.status_label.setText("正在恢复，请稍候...")
+            QApplication.processEvents()
+            with open(file_path, 'r', encoding='utf-8') as f:
+                subprocess.run(cmd, stdin=f, check=True, stderr=subprocess.PIPE)
+            self.status_label.setText("恢复成功！")
+            QMessageBox.information(self, "成功", "数据库恢复完成！")
+            # 恢复后刷新主界面
+            self.parent().refresh_table() if self.parent() else None
+        except subprocess.CalledProcessError as e:
+            self.status_label.setText("恢复失败")
+            QMessageBox.critical(self, "错误", f"恢复失败：{e.stderr.decode() if e.stderr else '未知错误'}")
+        except Exception as e:
+            self.status_label.setText("恢复失败")
+            QMessageBox.critical(self, "错误", f"恢复异常：{e}")
