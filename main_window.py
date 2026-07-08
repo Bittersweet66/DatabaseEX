@@ -147,23 +147,44 @@ class BookOrderSystem(QMainWindow):
             self.refresh_table()
 
     def show_subscription_warning(self):
-        query = """
-        SELECT 
-            t.ISBN,
-            t.book_name,
-            t.author,
-            t.price,
-            t.stock,
-            COALESCE(SUM(cbp.required_quantity), 0) AS total_required,
-            (t.stock - COALESCE(SUM(cbp.required_quantity), 0)) AS remaining
-        FROM Textbooks t
-        LEFT JOIN ClassBookPlans cbp ON t.ISBN = cbp.textbook_id
-        GROUP BY t.ISBN
-        HAVING remaining <= 10
-        ORDER BY remaining
+        # 利用视图 LowStockView 快速获取库存不足 20 的教材（阈值可调）
+        view_query = """
+            SELECT ISBN FROM LowStockView
         """
         try:
-            rows = DBConnection.execute_query(query, fetch_all=True)
+            conn = DBConnection.get_conn()
+            cursor = conn.cursor()
+            cursor.execute(view_query)
+            low_isbns = [row[0] for row in cursor.fetchall()]
+            if not low_isbns:
+                QMessageBox.information(self, "余量预警", "所有教材库存充足，无预警！")
+                cursor.close()
+                conn.close()
+                return
+
+            # 在这些教材中进一步计算征订量，筛选剩余库存 ≤ 10
+            placeholders = ','.join(['%s'] * len(low_isbns))
+            query = f"""
+                SELECT 
+                    t.ISBN,
+                    t.book_name,
+                    t.author,
+                    t.price,
+                    t.stock,
+                    COALESCE(SUM(cbp.required_quantity), 0) AS total_required,
+                    (t.stock - COALESCE(SUM(cbp.required_quantity), 0)) AS remaining
+                FROM Textbooks t
+                LEFT JOIN ClassBookPlans cbp ON t.ISBN = cbp.textbook_id
+                WHERE t.ISBN IN ({placeholders})
+                GROUP BY t.ISBN
+                HAVING remaining <= 10
+                ORDER BY remaining
+            """
+            cursor.execute(query, low_isbns)
+            rows = cursor.fetchall()
+            cursor.close()
+            conn.close()
+
             if not rows:
                 QMessageBox.information(self, "余量预警", "所有教材库存充足，无预警！")
                 return
@@ -172,7 +193,7 @@ class BookOrderSystem(QMainWindow):
             self.status_bar.showMessage(f"余量预警：{len(rows)} 种教材库存不足（剩余≤10）")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"查询失败：{e}")
-        self.status_bar.showMessage("当前显示：余量预警")
+            self.status_bar.showMessage("当前显示：余量预警")
 
     def print_class_list(self):
         class_name, ok1 = QInputDialog.getText(self, "班级采购清单", "请输入班级名称 (如 计科2101):")
@@ -277,14 +298,35 @@ class BookOrderSystem(QMainWindow):
     def search_textbooks(self):
         keyword = self.search_edit.text().strip()
         if not keyword:
-            self.refresh_table()   # 空搜索则显示全部
+            self.refresh_table()
             return
-        # 使用全文索引或模糊查询
-        query = """
-        SELECT * FROM Textbooks
-        WHERE book_name LIKE %s OR ISBN LIKE %s
-        """
+
+        # 先尝试全文搜索（利用 ft_book_name 索引）
+        try:
+            # 布尔模式，分词加通配符 *
+            search_term = ' '.join([f'+{word}*' for word in keyword.split()])
+            query = """
+                SELECT * FROM Textbooks
+                WHERE MATCH(book_name) AGAINST(%s IN BOOLEAN MODE)
+            """
+            rows = DBConnection.execute_query(query, (search_term,), fetch_all=True)
+            if rows:
+                conn = DBConnection.get_conn()
+                cursor = conn.cursor()
+                cursor.execute(query, (search_term,))
+                columns = [desc[0] for desc in cursor.description]
+                cursor.close()
+                conn.close()
+                populate_table(self.table, rows, columns)
+                self.status_bar.showMessage(f"全文搜索结果：{len(rows)} 条记录")
+                return
+        except Exception:
+            # 全文搜索失败则回退到 LIKE
+            pass
+
+        # 回退：LIKE 模糊查询
         like = f"%{keyword}%"
+        query = "SELECT * FROM Textbooks WHERE book_name LIKE %s OR ISBN LIKE %s"
         try:
             rows = DBConnection.execute_query(query, (like, like), fetch_all=True)
             if rows:
@@ -295,7 +337,7 @@ class BookOrderSystem(QMainWindow):
                 cursor.close()
                 conn.close()
                 populate_table(self.table, rows, columns)
-                self.status_bar.showMessage(f"搜索结果：{len(rows)} 条记录")
+                self.status_bar.showMessage(f"模糊搜索结果：{len(rows)} 条记录")
             else:
                 self.table.setRowCount(0)
                 self.status_bar.showMessage("未找到匹配教材")
